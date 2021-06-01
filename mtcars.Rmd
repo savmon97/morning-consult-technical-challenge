@@ -1,0 +1,47 @@
+---
+title: "Average mpg of mtcars Dataset"
+author: "Salomon Villatoro"
+date: "6/1/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tinytex)
+library(tidytext)
+library(knitr)
+
+```
+
+This is the Rmd file with the requested datable that shows the average mile per 
+gallon of each car make in the mtcars dataset.
+
+The code I used below highlights how I thought about answering this problem.
+
+First, I used regular expressions to extract all car makes from the car models
+in the dataset.
+
+```{r mtcars}
+mtcars_avg <- mtcars %>% 
+  rownames_to_column(var = "car") %>% 
+  mutate(make = str_extract(car,"[A-Z][a-z]+"))
+```
+
+Next, I grouped my previously saved table by make, and calculated the mean mpg
+for each make using the tapply function in the apply family.
+```{r cars}
+cars <- data.frame(tapply(mtcars_avg$mpg, mtcars_avg$make,mean)) %>% 
+  rownames_to_column(var = "Make") %>% 
+  rename(mpg = "tapply.mtcars_avg.mpg..mtcars_avg.make..mean.") %>% 
+  mutate(mpg = round(mpg, 2))
+```
+Finally, I used knitr's kable function to clean up the table for presentation.
+```{r kable}
+
+kable(list(cars[1:11,], cars[12:22,]),
+      caption = "Average miles per gallon for each car make",
+      booktabs = TRUE)
+
+```
