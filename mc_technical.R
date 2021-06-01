@@ -16,10 +16,10 @@
   # Reading in the code
   #--------------------
   indFav <- read_csv("C:/Users/svillatoro/Desktop/morningconsult/part 1a) Individual Favorability Data.csv") %>%
-    filter(is.na(demAgeFull) == FALSE)
+    filter(!is.na(demAgeFull))
   
   #-----------------------------------
-  # Cleaning Data and Making Codebooks
+  # Making Codebooks
   #-----------------------------------
   codebook <- indFav[1,] %>% t() %>% as_tibble(rownames = NA) %>% 
     filter(str_detect(V1, "(.*take...-)")) %>% 
@@ -28,7 +28,8 @@
   
   #making factors for individuals to show up in the order
   #they appeared on the survey
-  fLevels <- rev(codebook[[2]])
+  #UPDATE: not needed
+  #fLevels <- rev(codebook[[2]])
   
   pId <- tibble(demPidNoLn = as.character(c(1:4)), 
                 party = c("Republican", "Democrat", "Independent", "Something Else"))
@@ -42,27 +43,32 @@
                    "Never Heard Of"))
   
   #-------------------
-  # making tidy Data
+  # Cleaning data using
+  # tidy techniques
   #-------------------
-  indFav <- indFav[-1,] %>% 
-    select(c(6,19:35)) %>% 
+  indFav <- indFav %>%
+    slice(-1) %>% 
+    select(demPidNoLn,indPresApp_ID3_2:indPresApp_indPresApp_25) %>% 
     left_join(pId, by = "demPidNoLn")
   
   #calculating number of democrats and republicans
   parties <- indFav %>% count(demPidNoLn)
   
-  dem <- parties[[2,2]]
-  rep <- parties[[1,2]]
+  dem <- parties %>% filter(demPidNoLn == 2) %>% pull(n)
+  rep <- parties %>% filter(demPidNoLn == 1) %>% pull(n)
   # cleaning data
+  
+  # raw indivudual tidy data
   favorability <- indFav %>% 
     select(-1) %>% 
     pivot_longer(!party, names_to = "individual", values_to = "score_raw")
-  
+ 
+   #cleaned individual tidy data
   netFav <- favorability %>% 
     mutate(score = ifelse(score_raw == "1" | score_raw == "2", "favorable", 
                           ifelse(score_raw == "3" | score_raw == "4", "unfavorable","never_heard_no_opinion"))) %>% 
     left_join(codebook, by = "individual") %>% 
-    select(1,5,4) %>% 
+    select(party,V1,score) %>% 
     rename("individual" = "V1")
   
   #-------------------------------
@@ -74,46 +80,93 @@
               total = nrow(indFav)) %>% 
     #filter(score != "N/A") %>% 
     mutate(percent = count/total) %>% 
-    select(1,2,5) %>% 
+    select(individual,score,percent) %>% 
     pivot_wider(names_from = score, 
                 values_from = percent) %>% 
     mutate(net_favorability = favorable - unfavorable) %>% 
     mutate(ratio_favorability = favorable/unfavorable) %>% 
-    rename("total_favorability" = "favorable")
+    rename("total_favorability" = "favorable") %>% 
+    rename("total_unfavorability" = "unfavorable") %>% 
+    arrange(desc(total_favorability))
   #---------------------------------
   # Saving results as a table CSV
   #---------------------------------
-  write.csv(
+  write_csv(
     sumFav,
     "summary.csv"
   )
   
   #--------------------------------------
   #creating 2 tables to make effective viz
+  # chartFav1 -> total favorability
+  # chartFav2 -> total favorability 
+  #               by political party
   #--------------------------------------
   chartFav1 <- netFav %>% 
     group_by(individual, score) %>% 
     summarise(count = n(),
               total = nrow(indFav)) %>% 
     mutate(percent = count/total) %>% 
-    select(1,2,5)
+    select(individual,score,percent)
   
   chartFav2 <- netFav %>% 
     group_by(individual, party, score) %>% 
     summarise(count = n()) %>% 
     filter(party == "Democrat" | party == "Republican") %>% 
     mutate(percent = ifelse(party == "Democrat", count/dem, count/rep)) %>% 
-    select(1,2,3,5)
+    select(individual,party,score,percent)
   
   #--------------------------------
   # Total favorability plot
   #-------------------------------
+  chartFav1 <- chartFav1 %>% 
+    mutate(individual = factor(individual,
+                               levels = c("Hope Hicks",
+                                          "Gary Cohn",
+                                          "Steve Bannon",
+                                          "Mitch McConnell",
+                                          "Jared Kushner",
+                                          "Jeff Sessions",
+                                          "Charles Schumer",
+                                          "Kellyanne Conway",
+                                          "Republicans in Congress",
+                                          "Paul Ryan",
+                                          "Robert Mueller",
+                                          "Nancy Pelosi",
+                                          "Democrats in Congress",
+                                          "Ivanka Trump",
+                                          "Donald Trump",
+                                          "Mike Pence",
+                                          "Melania Trump"
+                                          )))
+  
+  chartFav2 <- chartFav2 %>% 
+    mutate(individual = factor(individual,
+                               levels = c("Hope Hicks",
+                                          "Gary Cohn",
+                                          "Steve Bannon",
+                                          "Mitch McConnell",
+                                          "Jared Kushner",
+                                          "Jeff Sessions",
+                                          "Charles Schumer",
+                                          "Kellyanne Conway",
+                                          "Republicans in Congress",
+                                          "Paul Ryan",
+                                          "Robert Mueller",
+                                          "Nancy Pelosi",
+                                          "Democrats in Congress",
+                                          "Ivanka Trump",
+                                          "Donald Trump",
+                                          "Mike Pence",
+                                          "Melania Trump"
+                               )))
   favPlot1 <- ggplot(chartFav1, 
-                    mapping = aes(y = factor(individual, levels = c(fLevels)), 
+                    mapping = aes(y = individual, 
                                   x = percent,
-                                  fill = score)) +
+                                  fill = fct_rev(score))) +
     geom_bar(stat = "identity",
-             position = "fill")+
+             position = "fill",
+             width = 0.75)+
     geom_text(aes(label = paste0(round(100*percent,0), "%"), 
                   x = percent, 
                   y = individual),
@@ -130,50 +183,62 @@
     labs(subtitle = "Adults were asked if they had a favorable or unfavorable \nview of key national figures in the United States:")+
     ggtitle("Individual Favorability of National \nFigures In the United States:") +
     guides(fill = guide_legend(reverse = TRUE))+
+    coord_cartesian(clip = "off") +
     theme(plot.background = element_rect(fill = NA),
           legend.position = "top",
           legend.title = element_blank(),
           panel.background = element_rect(fill = NA),
-          aspect.ratio = 1,
+          aspect.ratio = 1.25,
           plot.title = element_text(family = "serif",
                                     hjust = 0.5,
                                     face = "bold",
-                                    size = 12),
+                                    size = 16),
           plot.subtitle = element_text(hjust = 0.5,
                                        face = "bold",
-                                       size = 8),
-          axis.ticks = element_blank())
+                                       size = 11,
+                                       color = "#7f7f7f"),
+          axis.ticks = element_blank(),
+          axis.text.y = element_text(face = "bold",
+                                     size = 10,
+                                     color = "#7f7f7f"))
   
   favPlot1
-  
+  ggsave("favPlot1.png",
+         width = 6,
+         height = 12,
+         units = "in")
+  #--------------------------------
+  # Total favorability amongst 
+  # either Democrats or Republicans
+  #--------------------------------
   favPlot2 <- ggplot(chartFav2) +
-    geom_bar(aes(y = fct_rev(party), 
+    geom_bar(aes(y = party, 
                  x = percent,
                  fill = fct_rev(score)),
              stat = "identity",
              position = "fill") +
-    facet_grid(rows = vars(factor(individual, levels = c(rev(fLevels)))),
+    facet_grid(rows = vars(fct_rev(individual)),
                switch ="y",
                labeller =(groupwrap = label_wrap_gen(20))) +
     geom_text(aes(label = paste0(round(100*percent,0), "%"), 
                   x = percent, 
                   y = fct_rev(party)),
               size = 4,
-              position = position_fill(vjust = 0.6),
+              position = position_fill(vjust = 0.5),
               color = "#FFFFFF",
               fontface = "bold")+
-    annotate("text", x = 0)+
     scale_y_discrete(position = "right") +
     scale_x_continuous(labels = NULL) +
     scale_fill_manual(values = c("#e83237","#a9a9a9","#066b66"),
                       labels = c("Unfavorable", "No Opinion/\nNever Heard Of", "Favorable"))+
     ylab(NULL) +
     xlab(NULL) + 
-    labs(subtitle = "Adults who identified as Democrats or Republicans were asked if they had a \nfavorable or unfavorable view of key national figures in the United States:")+
+    labs(subtitle = "Adults who identified as Democrats or Republicans were asked if they had \nfavorable or unfavorable views of key national figures in the United States:")+
     ggtitle("Individual Favorability of National Figures \nIn the United States by Respondent Party") +
     guides(fill = guide_legend(reverse = TRUE))+
-    theme(strip.text.y = element_text(size = 10, 
-                                      color = "#a1a1a1", 
+    coord_cartesian(clip = "off") +
+    theme(strip.text.y = element_text(size = 12, 
+                                      color = "#7f7f7f", 
                                       face = "bold"),
           strip.text.y.left = element_text(angle = 0),
           strip.background = element_rect(fill = NA),
@@ -186,13 +251,18 @@
           plot.title = element_text(family = "serif",
                                     hjust = 0.5,
                                     face = "bold",
-                                    size = 12),
+                                    size = 16),
           plot.subtitle = element_text(hjust = 0.5,
                                        face = "bold",
-                                       size = 8),
+                                       size = 11,
+                                       color = "#7f7f7f"),
           axis.ticks = element_blank())
     
   favPlot2
+  ggsave("favPlot2.png",
+         width = 7,
+         height = 12,
+         units = "in")
     
   
   
